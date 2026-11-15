@@ -1,31 +1,63 @@
 // Builds drawable scenes (layer batches with KiCad-like colors) and hit testing for boards and schematic sheets.
 import { newBatch, addToBatch } from './render.js';
-import { boardLayerInfo, boardLayerOrder, KICAD_PCB_COLORS, SCH_COLORS, schLayerInfo } from './layers.js';
+import { boardLayerInfo, KICAD_PCB_COLORS, SCH_COLORS, kicadDisplayName, kicadLayerStyle, kicadPanelIndex, kicadDrawOrder } from './layers.js';
+import { makeLayerMapper } from './kicad/pcb.js';
 import { padOutline } from './eagle.js';
 import { distToSeg, pointInPoly, BBox, textBox } from './geom.js';
 
 // ------------------------------------------------------------------ board
-export function boardShapeKey(s) {
-  if (s.k === 'pad') return s.th ? 17 : s.layer;
-  if (s.k === 'via') return 18;
-  if (s.k === 'hole') return 17;
-  return s.layer;
+// Shapes are grouped by the KiCad layer they map to (same mapping as the KiCad export).
+function boardKeyer(B) {
+  if (B._keyer) return B._keyer;
+  const L = makeLayerMapper(B);
+  const names = new Map();
+  const key = (n) => {
+    if (names.has(n)) return names.get(n);
+    let k;
+    if (n === 19) k = 'Ratsnest';
+    else if (n === 41 || n === 42 || n === 43) k = 'Rule Areas';
+    else if (n === 23 || n === 24) k = 'User.Eco1';
+    else if ([33, 34, 37, 38, 44, 45].includes(n)) k = 'User.Eco2';
+    else k = kicadDisplayName(L.layer(n) || 'Dwgs.User');
+    names.set(n, k);
+    return k;
+  };
+  B._keyer = { key, nInner: L.nInner, sources: new Map() };
+  for (const s of B.shapes) {
+    const k = boardShapeKey(s, B._keyer);
+    if (typeof s.layer === 'number' && !(s.k === 'pad' && s.th)) {
+      if (!B._keyer.sources.has(k)) B._keyer.sources.set(k, new Set());
+      B._keyer.sources.get(k).add(B.layers.get(s.layer)?.name || boardLayerInfo(s.layer).name);
+    }
+  }
+  return B._keyer;
+}
+
+export function boardShapeKey(s, keyer) {
+  if (s._key) return s._key;
+  if (!keyer) return undefined;
+  let k;
+  if (s.k === 'pad') k = s.th ? 'Pads' : keyer.key(s.layer);
+  else if (s.k === 'via') k = 'Vias';
+  else if (s.k === 'hole') k = 'Pads';
+  else k = keyer.key(s.layer);
+  s._key = k;
+  return k;
 }
 
 export function boardLayerList(B) {
-  const keys = new Set();
-  for (const s of B.shapes) keys.add(boardShapeKey(s));
-  keys.add(17); keys.add(18);
-  return [...keys].map((k) => {
-    const info = B.layers.get(k) || boardLayerInfo(k);
-    return { ...boardLayerInfo(k, info.name), key: k };
-  });
+  const keyer = boardKeyer(B);
+  const keys = new Set(['F.Cu', 'B.Cu', 'Pads', 'Vias', 'Edge.Cuts']);
+  for (const s of B.shapes) keys.add(boardShapeKey(s, keyer));
+  for (let i = 1; i <= keyer.nInner; i++) keys.add(`In${i}.Cu`);
+  return [...keys].map((k) => ({ key: k, name: k, ...kicadLayerStyle(k), sources: [...(keyer.sources.get(k) || [])] }));
 }
 
 export function buildBoardScene(B, state) {
+  const keyer = boardKeyer(B);
   const batches = new Map();
   for (const s of B.shapes) {
-    const key = boardShapeKey(s);
+    const key = boardShapeKey(s, keyer);
     let b = batches.get(key);
     if (!b) { b = newBatch(); batches.set(key, b); }
     addToBatch(b, s);
@@ -61,20 +93,20 @@ export function buildBoardScene(B, state) {
         const width = Math.max(...zones.map((z) => z.w || 0));
         list.push({ net, path: zp, cut, iso, others: others.length ? op : null, width });
       }
-      if (list.length) pours.set(layer, list);
+      if (list.length) pours.set(keyer.key(layer), list);
     }
   }
   const list = boardLayerList(B);
   const layers = list.map((L) => ({
-    key: L.key, name: L.name, color: state.colors?.get(L.key) || L.color, alpha: L.alpha,
+    key: L.key, name: L.name, sources: L.sources, color: state.colors?.get(L.key) || L.color, alpha: L.alpha,
     visible: state.visible.has(L.key) ? state.visible.get(L.key) : L.visible,
-    batch: batches.get(L.key) || newBatch(), order: boardLayerOrder(L.key, state.flip), zoneAlpha: 0.32,
+    batch: batches.get(L.key) || newBatch(), order: kicadDrawOrder(L.key, state.flip, keyer.nInner), panel: kicadPanelIndex(L.key), zoneAlpha: 0.32,
     minLine: 1, pours: pours.get(L.key),
   }));
   if (state.activeLayer !== undefined) {
     const al = layers.find((l) => l.key === state.activeLayer);
-    if (al) al.order = al.key >= 1 && al.key <= 16 ? 140 : 1000;
-    if (state.highContrast) for (const l of layers) if (l.key !== state.activeLayer && l.key !== 17 && l.key !== 18) l.dimmed = true;
+    if (al) al.order = /\.Cu$/.test(al.key) ? 140 : 1000;
+    if (state.highContrast) for (const l of layers) if (l.key !== state.activeLayer && l.key !== 'Pads' && l.key !== 'Vias') l.dimmed = true;
   }
   layers.sort((a, b) => a.order - b.order);
   return {
@@ -89,7 +121,7 @@ export function boardHit(B, x, y, scene, tol) {
   const order = new Map(scene.layers.map((l, i) => [l.key, i]));
   let best = null, bestOrder = -1;
   for (const s of B.shapes) {
-    const key = boardShapeKey(s);
+    const key = boardShapeKey(s, boardKeyer(B));
     if (!vis.has(key)) continue;
     let hit = false;
     switch (s.k) {
@@ -112,45 +144,48 @@ export function boardHit(B, x, y, scene, tol) {
   }
   let comp = null;
   for (const el of B.elements) {
-    const side = el.rot.mirror ? 16 : 1;
-    if (!vis.has(side) && !vis.has(el.rot.mirror ? 22 : 21) && !vis.has(17)) continue;
+    const side = el.rot.mirror ? 'B.' : 'F.';
+    if (!vis.has(side + 'Cu') && !vis.has(side + 'Silkscreen') && !vis.has(side + 'Fab') && !vis.has('Pads')) continue;
     if (el.bbox.contains(x, y, tol)) if (!comp || el.bbox.area() < comp.bbox.area()) comp = el;
   }
   return { shape: best, element: best?.owner ? B.elements.find((e) => e.name === best.owner) : comp, comp };
 }
 
 // ------------------------------------------------------------------ schematic
+// Keys use the item names from KiCad's schematic Appearance panel.
 export function schShapeKey(s) {
-  if (s.k === 'text') {
-    if (s.label) return 'labels';
-    if (s.layer === 'pinname' || s.layer === 'pinnum') return s.layer;
-    if (s.attr === 'NAME' || s.src === '>NAME') return 'refs';
-    if (s.attr === 'VALUE' || s.src === '>VALUE') return 'values';
-    if (s.layer === 95) return 'refs';
-    if (s.layer === 96) return 'values';
-    return s.inst || s.owner ? 'symtext' : `t${s.layer}`;
-  }
   if (s.k === 'pinpt') return null;
-  return s.layer;
+  if (s.label || (s.net && s.k === 'poly')) return 'Labels';
+  if (s.junction) return 'Junctions';
+  if (s.k === 'text') {
+    if (s.layer === 'pinname') return 'Pin names';
+    if (s.layer === 'pinnum') return 'Pin numbers';
+    if (s.attr === 'NAME' || s.src === '>NAME' || s.layer === 95) return 'Symbol references';
+    if (s.attr === 'VALUE' || s.src === '>VALUE' || s.layer === 96) return 'Symbol values';
+    return s.inst || s.owner ? 'Symbol fields' : 'Notes';
+  }
+  if (s.layer === 91) return 'Wires';
+  if (s.layer === 92) return 'Buses';
+  if (s.layer === 93) return 'Pins';
+  if (s.layer === 90) return 'Sheet borders';
+  if (s.layer === 94 || s.inst || s.owner) return 'Symbol body outlines';
+  return 'Notes';
 }
 
-const SCH_KEY_INFO = {
-  labels: ['Net labels', SCH_COLORS.label], pinname: ['Pin names', SCH_COLORS.pinName], pinnum: ['Pin numbers', SCH_COLORS.pinNum],
-  refs: ['References', SCH_COLORS.reference], values: ['Values', SCH_COLORS.value], symtext: ['Symbol text', SCH_COLORS.field],
-};
+const SCH_KEYS = [
+  ['Wires', SCH_COLORS.wire], ['Buses', SCH_COLORS.bus], ['Junctions', SCH_COLORS.junction], ['Labels', SCH_COLORS.label],
+  ['Pins', SCH_COLORS.pin], ['Pin names', SCH_COLORS.pinName], ['Pin numbers', SCH_COLORS.pinNum],
+  ['Symbol references', SCH_COLORS.reference], ['Symbol values', SCH_COLORS.value], ['Symbol fields', SCH_COLORS.field],
+  ['Symbol body outlines', SCH_COLORS.symbol], ['Sheet borders', SCH_COLORS.sheet], ['Notes', SCH_COLORS.notes],
+];
+const SCH_DRAW = ['Notes', 'Sheet borders', 'Symbol body outlines', 'Pins', 'Buses', 'Wires', 'Junctions'];
 
 export function schLayerList(S, sheet) {
   const keys = new Set();
   for (const s of sheet.shapes) { const k = schShapeKey(s); if (k !== null) keys.add(k); }
-  return [...keys].map((k) => {
-    if (SCH_KEY_INFO[k]) return { key: k, name: SCH_KEY_INFO[k][0], color: SCH_KEY_INFO[k][1], visible: true };
-    const num = typeof k === 'string' ? +k.slice(1) : k;
-    const info = schLayerInfo(num, S.layers.get(num)?.name);
-    return { key: k, name: (typeof k === 'string' ? 'Text: ' : '') + info.name, color: typeof k === 'string' && num === 94 ? SCH_COLORS.symbol : info.color, visible: true };
-  });
+  return SCH_KEYS.filter(([k]) => keys.has(k)).map(([k, color], i) => ({ key: k, name: k, color, visible: true, panel: i }));
 }
 
-const SCH_ORDER = { 98: 0, 97: 1, 94: 2, 93: 3, 92: 4, 91: 5 };
 export function buildSchScene(S, sheet, state) {
   const batches = new Map();
   for (const s of sheet.shapes) {
@@ -162,7 +197,7 @@ export function buildSchScene(S, sheet, state) {
   }
   const layers = schLayerList(S, sheet).map((L) => ({
     ...L, color: state.colors?.get(L.key) || L.color, visible: state.visible.has(L.key) ? state.visible.get(L.key) : L.visible,
-    batch: batches.get(L.key) || newBatch(), order: typeof L.key === 'number' ? (SCH_ORDER[L.key] ?? 2) : 10, minLine: 1,
+    batch: batches.get(L.key) || newBatch(), order: SCH_DRAW.includes(L.key) ? SCH_DRAW.indexOf(L.key) : 10, minLine: 1,
   }));
   layers.sort((a, b) => a.order - b.order);
   return { background: SCH_COLORS.background, gridColor: '#c9c6bb', layers, bbox: sheet.bbox, gridSteps: [0.635, 1.27, 2.54, 5.08, 12.7, 25.4, 50.8, 127, 254] };

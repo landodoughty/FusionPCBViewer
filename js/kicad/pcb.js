@@ -18,7 +18,8 @@ export function makeLayerMapper(B) {
   const inner = new Set();
   for (const s of B.shapes) {
     if (typeof s.layer === 'number' && s.layer >= 2 && s.layer <= 15) inner.add(s.layer);
-    if (s.k === 'via') { const [a, b] = s.extent.split('-').map(Number); for (let l = Math.min(a, b); l <= Math.max(a, b); l++) if (l >= 2 && l <= 15) inner.add(l); }
+    // a via only needs the layers it ends on (a 1-16 through via spans whatever copper exists)
+    if (s.k === 'via') for (const l of s.extent.split('-').map(Number)) if (l >= 2 && l <= 15) inner.add(l);
   }
   // honour the design-rule layer setup, e.g. "(1*2*15*16)"
   for (const m of (B.dr.layerSetup || '').matchAll(/\d+/g)) { const n = +m[0]; if (n >= 2 && n <= 15) inner.add(n); }

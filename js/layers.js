@@ -140,3 +140,71 @@ export function schLayerInfo(num, name) {
   const m = map[num];
   return { num, name: name || (m ? m[0] : `Layer${num}`), color: m ? m[1] : (num >= 100 ? '#7a4f9a' : C.symbol), visible: true, alpha: 1 };
 }
+
+// ------------------------------------------------------------------ KiCad-named layer groups (viewer)
+// The viewer groups EAGLE layers into the KiCad layers they become on export, using KiCad's
+// user-facing names, default colors and Appearance-panel order.
+const KICAD_DISPLAY = {
+  'F.SilkS': 'F.Silkscreen', 'B.SilkS': 'B.Silkscreen', 'F.CrtYd': 'F.Courtyard', 'B.CrtYd': 'B.Courtyard',
+  'F.Adhes': 'F.Adhesive', 'B.Adhes': 'B.Adhesive', 'Dwgs.User': 'User.Drawings', 'Cmts.User': 'User.Comments',
+  'Eco1.User': 'User.Eco1', 'Eco2.User': 'User.Eco2',
+};
+export const kicadDisplayName = (n) => KICAD_DISPLAY[n] || n;
+
+const KICAD_INNER_COLORS = ['#7fc87f', '#ce7d2c', '#4fcbcb', '#db628b', '#a7a5c6', '#28cccc', '#d6c93e', '#c87fc8', '#5c8f5c', '#9d5c2a', '#3d9696', '#a54c69', '#8584a6', '#aaa53c'];
+const KI_LAYER_STYLE = {
+  'F.Cu': ['#c83434'], 'B.Cu': ['#4d7fc4'],
+  'F.Adhesive': ['#840084', false], 'B.Adhesive': ['#0000c2', false],
+  'F.Paste': ['#b4a09a', false], 'B.Paste': ['#00c2c2', false],
+  'F.Silkscreen': ['#f2eda1'], 'B.Silkscreen': ['#e8b2a7'],
+  'F.Mask': ['#d864ff', false, 0.45], 'B.Mask': ['#02ffee', false, 0.45],
+  'User.Drawings': ['#c2c2c2'], 'User.Comments': ['#5994dc'], 'User.Eco1': ['#b4dbd2', false], 'User.Eco2': ['#d8c852', false],
+  'Edge.Cuts': ['#d0d2cd'], Margin: ['#ff26e2', false],
+  'F.Courtyard': ['#ff26e2', false], 'B.Courtyard': ['#26e9ff', false],
+  'F.Fab': ['#afafaf'], 'B.Fab': ['#585d84'],
+  Pads: ['#e3b72e'], Vias: ['#ececec'], Ratsnest: ['#f5f5f5', true, 0.6], 'Rule Areas': ['#c84040', false, 0.55],
+};
+const PANEL_ORDER = ['F.Cu', '#inner', 'B.Cu', 'F.Adhesive', 'B.Adhesive', 'F.Paste', 'B.Paste', 'F.Silkscreen', 'B.Silkscreen', 'F.Mask', 'B.Mask',
+  'User.Drawings', 'User.Comments', 'User.Eco1', 'User.Eco2', 'Edge.Cuts', 'Margin', 'F.Courtyard', 'B.Courtyard', 'F.Fab', 'B.Fab',
+  'Pads', 'Vias', 'Ratsnest', 'Rule Areas'];
+const innerNum = (k) => { const m = /^In(\d+)\.Cu$/.exec(k); return m ? +m[1] : 0; };
+
+export function kicadLayerStyle(key) {
+  const n = innerNum(key);
+  if (n) return { color: KICAD_INNER_COLORS[(n - 1) % KICAD_INNER_COLORS.length], visible: true, alpha: 1 };
+  const s = KI_LAYER_STYLE[key] || ['#9a9a9a'];
+  return { color: s[0], visible: s[1] ?? true, alpha: s[2] ?? 1 };
+}
+
+/** Appearance-panel position (front first, like KiCad). */
+export function kicadPanelIndex(key) {
+  const n = innerNum(key);
+  if (n) return 1 + n / 100;
+  const i = PANEL_ORDER.indexOf(key);
+  return i < 0 ? 99 : i;
+}
+
+const flipSide = (k) => (k.startsWith('F.') ? 'B.' + k.slice(2) : k.startsWith('B.') ? 'F.' + k.slice(2) : k);
+/** Back-to-front drawing order. */
+export function kicadDrawOrder(key, flipped = false, nInner = 0) {
+  if (flipped) {
+    const n = innerNum(key);
+    if (n) return 100 + n;
+    key = flipSide(key);
+  } else {
+    const n = innerNum(key);
+    if (n) return 100 + (nInner + 1 - n);
+  }
+  const back = ['B.Fab', 'B.Courtyard', 'B.Adhesive', 'B.Paste', 'B.Mask', 'B.Silkscreen'];
+  const front = ['F.Mask', 'F.Paste', 'F.Adhesive', 'F.Fab', 'F.Silkscreen', 'F.Courtyard'];
+  if (back.includes(key)) return 10 + back.indexOf(key);
+  if (key === 'B.Cu') return 100;
+  if (key === 'F.Cu') return 120;
+  if (key === 'Pads') return 150;
+  if (key === 'Vias') return 151;
+  if (front.includes(key)) return 200 + front.indexOf(key);
+  if (key === 'Edge.Cuts') return 300;
+  if (key === 'Rule Areas') return 310;
+  if (key === 'Ratsnest') return 400;
+  return 250;
+}

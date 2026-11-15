@@ -18,14 +18,15 @@ python3 -m http.server 8000
 
 Then open <http://localhost:8000>. Any static web server works.
 
-Drop your `.fsch` and `.fbrd` onto the window, or use **Open…**. Open both files together to get schematic ↔ PCB cross-probing. Or click **Try the demo**.
+Drop your `.fsch` and `.fbrd` onto the window, or use **Open…**. Open both files (together or one after the other) to get schematic ↔ PCB cross-probing. Or click **Try the demo**.
 
 ## Viewing
 
 | | Schematic | PCB |
 |---|---|---|
 | Look | KiCad default schematic colors: green wires, dark-red symbols, junctions, net labels, cross-reference flags, sheet frames | KiCad default dark board colors, per-layer visibility, active layer, high-contrast mode |
-| Navigation | Sheet list, PgUp/PgDn | Flip board (view from bottom), Top/Bottom layer presets |
+| Layers | KiCad's Appearance names: Wires, Buses, Junctions, Labels, Pins, Symbol references… | KiCad layer names, order and colors (`F.Cu`, `In1.Cu`, `B.Cu`, `F.Silkscreen`, `F.Fab`, `Edge.Cuts`, `User.Drawings`…), grouped exactly as they are exported. Hover a layer to see which EAGLE layers it contains |
+| Navigation | Sheet list, PgUp/PgDn | Flip board (view from bottom), Front/Back layer presets |
 | Copper | n/a | Tracks, arcs, vias (incl. blind/buried), SMD and through-hole pads with EAGLE restring rules, **copper pours previewed with clearances** |
 | Inspect | Click a part for value, device, library, package, attributes and description. Click a wire, pin or label to highlight the net (with all its connections) | Click a pad, track, via or pour to highlight the net (routed length, vias, connected pads). Click a part for position, rotation, side and pads |
 

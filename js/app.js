@@ -17,7 +17,7 @@ const stripHtml = (s) => String(s || '').replace(/<br\s*\/?>/gi, '\n').replace(/
 const state = {
   sch: null, brd: null, mode: null, sheet: 0, fileName: '',
   visible: { sch: new Map(), brd: new Map() },
-  flip: false, highContrast: false, activeLayer: 1,
+  flip: false, highContrast: false, activeLayer: 'F.Cu',
   selection: null, // {type:'comp'|'net', name, pad?}
   list: 'parts', filter: '',
   units: 'mm', origin: [0, 0], cursor: [0, 0],
@@ -42,12 +42,13 @@ async function openFiles(files) {
       return;
     }
     const t0 = performance.now();
-    // keep the other document if only one kind was opened and names match loosely
-    const sch = schDoc ? buildSchematic(schDoc) : (brdDoc && state.sch && sameStem(state.sch.name, brdDoc.name) ? state.sch : null);
-    const brd = brdDoc ? buildBoard(brdDoc) : (schDoc && state.brd && sameStem(state.brd.name, schDoc.name) ? state.brd : null);
+    // opening only a schematic keeps the loaded board (and vice versa), so both can be added one at a time
+    const sch = schDoc ? buildSchematic(schDoc) : state.sch;
+    const brd = brdDoc ? buildBoard(brdDoc) : state.brd;
     state.sch = sch; state.brd = brd;
-    state.selection = null; state.sheet = 0; state.flip = false;
-    state.visible = { sch: new Map(), brd: new Map() };
+    state.selection = null;
+    if (schDoc) { state.sheet = 0; state.visible.sch = new Map(); }
+    if (brdDoc) { state.flip = false; state.visible.brd = new Map(); state.activeLayer = 'F.Cu'; }
     state.fileName = [sch?.name, brd?.name].filter(Boolean).map((n) => n.split('/').pop()).join(' + ');
     document.title = `${projectName((sch || brd).name)} — Fusion PCB Viewer`;
     $('#welcome').classList.add('hidden');
@@ -62,8 +63,6 @@ async function openFiles(files) {
     toast(`Failed to open: ${e.message}`, true);
   }
 }
-const stem = (n) => String(n || '').split('/').pop().replace(/\.[^.]+$/, '').toLowerCase();
-const sameStem = (a, b) => stem(a) === stem(b);
 
 // ------------------------------------------------------------------ modes & scenes
 function setMode(mode, fit = false) {
@@ -275,17 +274,17 @@ function renderLayers() {
   q('All', () => setAll(() => true), 'Show all layers');
   q('None', () => setAll(() => false), 'Hide all layers');
   if (state.mode === 'brd') {
-    const front = new Set([1, 17, 18, 20, 21, 25, 27, 29, 31, 46, 51]);
-    const back = new Set([16, 17, 18, 20, 22, 26, 28, 30, 32, 46, 52]);
-    q('Top', () => setAll((L) => front.has(L.key)), 'Show only front-side layers');
-    q('Bottom', () => setAll((L) => back.has(L.key)), 'Show only back-side layers');
+    const common = (k) => ['Pads', 'Vias', 'Edge.Cuts', 'Ratsnest'].includes(k);
+    const keep = (L, side) => (L.key.startsWith(side) && !/\.(Mask|Paste|Adhesive|Courtyard)$/.test(L.key)) || common(L.key);
+    q('Front', () => setAll((L) => keep(L, 'F.')), 'Show only front-side layers');
+    q('Back', () => setAll((L) => keep(L, 'B.')), 'Show only back-side layers');
   }
-  // list in "front first" order like KiCad's appearance panel
-  const layers = [...scene.layers].sort((a, b) => b.order - a.order);
+  // same order as KiCad's Appearance panel
+  const layers = [...scene.layers].sort((a, b) => a.panel - b.panel);
   for (const L of layers) {
     const row = document.createElement('div');
     row.className = 'layer' + (L.visible ? '' : ' off') + (state.mode === 'brd' && L.key === state.activeLayer ? ' active' : '');
-    const label = state.mode === 'brd' ? `${esc(L.name)}<small>${typeof L.key === 'number' ? L.key : ''}</small>` : esc(L.name);
+    const label = esc(L.name);
     row.innerHTML = `<input type="checkbox" ${L.visible ? 'checked' : ''} title="Show/hide"><span class="sw" style="background:${L.color};opacity:${L.alpha ?? 1}"></span><span class="nm">${label}</span>`;
     const cb = row.querySelector('input');
     cb.onclick = (e) => { e.stopPropagation(); vis.set(L.key, cb.checked); rebuildScene(); renderLayers(); };
@@ -293,7 +292,8 @@ function renderLayers() {
       if (state.mode === 'brd') { state.activeLayer = L.key; vis.set(L.key, true); rebuildScene(); renderLayers(); }
       else { vis.set(L.key, !L.visible); rebuildScene(); renderLayers(); }
     };
-    row.title = state.mode === 'brd' ? 'Click to make active (drawn on top); checkbox toggles visibility' : 'Click to toggle visibility';
+    const src = L.sources?.length ? `EAGLE layers: ${L.sources.join(', ')}\n` : '';
+    row.title = state.mode === 'brd' ? `${src}Click to make active (drawn on top); checkbox toggles visibility` : 'Click to toggle visibility';
     el.appendChild(row);
   }
 }

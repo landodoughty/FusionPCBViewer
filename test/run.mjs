@@ -131,6 +131,7 @@ await test('board export: footprints, bottom side, arc track, via, zone', () => 
   ok(/\n  \(arc \(start/.test(p), 'arc track'); ok(/\(via \(at/.test(p), 'via'); ok(/\(zone \(net \d+\) \(net_name "GND"\) \(layer "B\.Cu"\)/.test(p), 'zone');
   ok(/\(gr_arc .*\(layer "Edge\.Cuts"\)/.test(p), 'outline arc'); ok(p.includes('np_thru_hole'), 'mounting hole');
   ok(/\(path "\/[0-9a-f-]+\/[0-9a-f-]+"\)/.test(p), 'footprints linked to schematic symbols');
+  ok(!p.includes('In1.Cu'), 'a 2-layer board with through vias must not gain inner layers');
 });
 
 // optional: let real KiCad load the files
