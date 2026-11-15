@@ -1,0 +1,16 @@
+{
+  "name": "fusion-pcb-viewer",
+  "version": "1.0.0",
+  "description": "Browser viewer for Autodesk Fusion Electronics (.fsch/.fbrd) and EAGLE (.sch/.brd) designs with KiCad export",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "bin": { "fusion2kicad": "cli/fusion2kicad.mjs" },
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "build": "node scripts/build-single.mjs",
+    "test": "node test/run.mjs",
+    "convert": "node cli/fusion2kicad.mjs"
+  },
+  "engines": { "node": ">=18" }
+}

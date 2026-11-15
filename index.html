@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fusion PCB Viewer</title>
+<meta name="description" content="View Autodesk Fusion Electronics (.fsch/.fbrd) and EAGLE (.sch/.brd) designs in the browser and export them to KiCad.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23001023'/%3E%3Cpath d='M6 22h8l4-8h8' stroke='%23c83434' stroke-width='3' fill='none'/%3E%3Ccircle cx='6' cy='22' r='3' fill='%23e3b72e'/%3E%3Ccircle cx='26' cy='14' r='3' fill='%23e3b72e'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="toolbar">
+  <div class="brand" title="Fusion PCB Viewer">
+    <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#001023"/><path d="M6 22h8l4-8h8" stroke="#c83434" stroke-width="3" fill="none"/><circle cx="6" cy="22" r="3" fill="#e3b72e"/><circle cx="26" cy="14" r="3" fill="#e3b72e"/></svg>
+    <span>Fusion PCB Viewer</span>
+  </div>
+  <button id="btn-open" class="btn primary" title="Open .fsch / .fbrd / .sch / .brd / .f3z (Ctrl+O)">
+    <svg viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Open
+  </button>
+  <input id="file-input" type="file" multiple hidden accept=".fsch,.fbrd,.sch,.brd,.f3z,.zip,.xml,.lbr">
+  <div class="tabs" role="tablist">
+    <button id="tab-sch" class="tab" role="tab" disabled title="Schematic editor view (Tab)">
+      <svg viewBox="0 0 24 24"><path d="M4 12h4m8 0h4M8 8v8l8-4z"/></svg>Schematic</button>
+    <button id="tab-brd" class="tab" role="tab" disabled title="PCB editor view (Tab)">
+      <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M7 15h4l3-6h3"/><circle cx="7" cy="15" r="1.5"/><circle cx="17" cy="9" r="1.5"/></svg>PCB</button>
+  </div>
+  <div class="tools">
+    <button class="icon" id="btn-fit" title="Zoom to fit (F / Home)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    <button class="icon" id="btn-zin" title="Zoom in (+)"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M15 15l5 5M7 10h6M10 7v6"/></svg></button>
+    <button class="icon" id="btn-zout" title="Zoom out (-)"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M15 15l5 5M7 10h6"/></svg></button>
+    <span class="vsep"></span>
+    <button class="icon toggle on" id="btn-grid" title="Show grid (G)"><svg viewBox="0 0 24 24"><path d="M4 4h.01M10 4h.01M16 4h.01M4 10h.01M10 10h.01M16 10h.01M4 16h.01M10 16h.01M16 16h.01M20 4h.01M20 10h.01M20 16h.01M4 20h.01M10 20h.01M16 20h.01M20 20h.01" stroke-width="3" stroke-linecap="round"/></svg></button>
+    <button class="icon toggle" id="btn-measure" title="Measure distance (M)"><svg viewBox="0 0 24 24"><path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/></svg></button>
+    <button class="icon toggle brd-only" id="btn-flip" title="Flip board view — look from the bottom (V)"><svg viewBox="0 0 24 24"><path d="M12 3v18M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg></button>
+    <button class="icon toggle brd-only" id="btn-contrast" title="High-contrast: dim all layers except the active one (H)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v16a8 8 0 0 0 0-16z" fill="currentColor"/></svg></button>
+  </div>
+  <div class="spacer"></div>
+  <div class="menu-wrap">
+    <button class="btn" id="btn-export" disabled title="Export to KiCad and other formats">
+      <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 19h16"/></svg>Export<span class="caret">▾</span>
+    </button>
+    <div class="menu" id="export-menu" hidden>
+      <button data-export="kicad-zip"><b>KiCad project (.zip)</b><small>Schematic, board, symbol &amp; footprint libraries</small></button>
+      <button data-export="kicad-sch"><b>KiCad schematic only</b><small>.kicad_sch (+ libraries)</small></button>
+      <button data-export="kicad-pcb"><b>KiCad board only</b><small>.kicad_pcb</small></button>
+      <hr>
+      <button data-export="bom"><b>Bill of materials</b><small>.csv</small></button>
+      <button data-export="png"><b>Image of current view</b><small>.png</small></button>
+    </div>
+  </div>
+  <button class="icon" id="btn-help" title="Keyboard shortcuts (?)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01"/></svg></button>
+</header>
+
+<main>
+  <aside id="left" class="panel">
+    <div class="ptabs">
+      <button class="ptab" data-list="sheets" id="ptab-sheets">Sheets</button>
+      <button class="ptab active" data-list="parts">Parts</button>
+      <button class="ptab" data-list="nets">Nets</button>
+    </div>
+    <div class="search"><input id="search" type="search" placeholder="Filter…  ( / )" autocomplete="off" spellcheck="false"></div>
+    <div id="list" class="list" role="listbox"></div>
+    <div id="list-count" class="list-count"></div>
+  </aside>
+
+  <section id="stage">
+    <canvas id="cv"></canvas>
+    <div id="welcome">
+      <div class="drop">
+        <svg viewBox="0 0 24 24" class="big"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg>
+        <h1>Open a Fusion Electronics or EAGLE design</h1>
+        <p>Drop <code>.fsch</code> and <code>.fbrd</code> files here (both together for cross-probing), or</p>
+        <div class="row-btns"><button class="btn primary" id="btn-open2">Choose files…</button><button class="btn" id="btn-demo" title="Load a small built-in example design">Try the demo</button></div>
+        <p class="fine">Also reads EAGLE <code>.sch</code>/<code>.brd</code> XML and <code>.f3z</code>/<code>.zip</code> archives containing them.<br>Everything runs locally in your browser — files are never uploaded.</p>
+      </div>
+    </div>
+    <div id="sheet-badge" hidden></div>
+    <div id="toast" hidden></div>
+  </section>
+
+  <aside id="right" class="panel">
+    <section class="psec" id="sec-layers">
+      <div class="phead"><span>Layers</span>
+        <span class="quick" id="layer-quick"></span>
+      </div>
+      <div id="layers" class="layers"></div>
+    </section>
+    <section class="psec grow" id="sec-props">
+      <div class="phead"><span>Properties</span><button class="link" id="btn-clear" hidden>Clear</button></div>
+      <div id="props" class="props"><p class="muted">Click an item to inspect it. Click a wire, pad or track to highlight its net.</p></div>
+    </section>
+  </aside>
+</main>
+
+<footer class="status">
+  <span id="st-file" class="st-file">No file loaded</span>
+  <span class="st-sp"></span>
+  <span id="st-hover" class="st-hover"></span>
+  <span id="st-xy">X 0.00 Y 0.00</span>
+  <span id="st-dxy" title="Relative to the origin set with Space">dx 0.00 dy 0.00 dist 0.00</span>
+  <span id="st-grid"></span>
+  <span id="st-zoom"></span>
+  <button id="st-units" class="link" title="Toggle units (U)">mm</button>
+</footer>
+
+<dialog id="help">
+  <h2>Shortcuts</h2>
+  <table>
+    <tr><td><kbd>Wheel</kbd></td><td>Zoom at cursor</td></tr>
+    <tr><td><kbd>Drag</kbd> / <kbd>Middle-drag</kbd></td><td>Pan</td></tr>
+    <tr><td><kbd>Click</kbd></td><td>Select part / highlight net</td></tr>
+    <tr><td><kbd>Tab</kbd></td><td>Switch schematic ↔ PCB (selection is cross-probed)</td></tr>
+    <tr><td><kbd>F</kbd> / <kbd>Home</kbd></td><td>Zoom to fit</td></tr>
+    <tr><td><kbd>+</kbd> / <kbd>-</kbd></td><td>Zoom in / out</td></tr>
+    <tr><td><kbd>PgUp</kbd> / <kbd>PgDn</kbd></td><td>Previous / next sheet</td></tr>
+    <tr><td><kbd>G</kbd></td><td>Toggle grid</td></tr>
+    <tr><td><kbd>M</kbd></td><td>Measure tool</td></tr>
+    <tr><td><kbd>Space</kbd></td><td>Set relative origin (dx/dy in status bar)</td></tr>
+    <tr><td><kbd>V</kbd></td><td>Flip board (view from bottom)</td></tr>
+    <tr><td><kbd>H</kbd></td><td>High-contrast active layer</td></tr>
+    <tr><td><kbd>U</kbd></td><td>Toggle mm / mil / inch</td></tr>
+    <tr><td><kbd>/</kbd></td><td>Filter list</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Clear selection / cancel</td></tr>
+  </table>
+  <form method="dialog"><button class="btn">Close</button></form>
+</dialog>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
